@@ -19,7 +19,6 @@ ASSET_DIR = os.path.join(BASE_DIR, "assets")
 # Colors
 BACKGROUND = (8, 8, 18)
 PLAYER_COLOR = (0, 255, 200)
-PLAYER_GLOW = (0, 120, 255)
 
 SHIELD_COLOR = (0, 180, 255)
 SLOW_COLOR = (180, 80, 255)
@@ -33,20 +32,26 @@ OBSTACLE_COLORS = [
 ]
 
 # Player
-player_size = 48
-player = pygame.Rect(WIDTH // 2, HEIGHT - 90, player_size, player_size)
+player_size = 64
+player = pygame.Rect(0, 0, player_size, player_size)
+player.center = (WIDTH // 2, HEIGHT - 110)
 player_speed = 6
+
+# Smaller collision box
+player_hitbox_size = 38
+player_hitbox = pygame.Rect(0, 0, player_hitbox_size, player_hitbox_size)
 
 # Obstacles
 obstacles = []
-obstacle_size = 42
+asteroid_1_size = 51
+asteroid_2_size = 56
 spawn_timer = 0
 base_spawn_delay = 30
 min_spawn_delay = 8
 
 # Power-ups
 powerups = []
-powerup_size = 34
+powerup_size = 48
 powerup_spawn_timer = 0
 powerup_spawn_delay = 360
 
@@ -77,25 +82,22 @@ high_score = 0
 difficulty_level = 1
 
 
-def load_image(filename, size):
-    """Load and resize an image from the assets folder.
-
-    :param filename: Name of the image file.
-    :type filename: str
-    :param size: Target image size.
-    :type size: tuple
-    :return: Loaded image or None if file is missing.
-    :rtype: pygame.Surface or None
-    """
+def load_image(filename, size=None):
+    """Load an image from the assets folder."""
     path = os.path.join(ASSET_DIR, filename)
 
     try:
         image = pygame.image.load(path).convert_alpha()
-        image = pygame.transform.scale(image, size)
+
+        if size is not None:
+            image = pygame.transform.scale(image, size)
+
         return image
+
     except FileNotFoundError:
         print(f"Warning: Missing asset file: {filename}")
         return None
+
     except pygame.error:
         print(f"Warning: Could not load asset file: {filename}")
         return None
@@ -105,17 +107,40 @@ def load_image(filename, size):
 background_image = load_image("background.png", (WIDTH, HEIGHT))
 player_image = load_image("player.png", (player_size, player_size))
 
-obstacle_images = [
-    load_image("asteroid.png", (obstacle_size, obstacle_size)),
-    load_image("asteroid_2.png", (obstacle_size, obstacle_size))
-]
-obstacle_images = [img for img in obstacle_images if img is not None]
+asteroid_image_1 = load_image(
+    "asteroid.png",
+    (asteroid_1_size, asteroid_1_size)
+)
+
+asteroid_image_2 = load_image(
+    "asteroid_2.png",
+    (asteroid_2_size, asteroid_2_size)
+)
+
+obstacle_assets = []
+
+if asteroid_image_1 is not None:
+    obstacle_assets.append({
+        "image": asteroid_image_1,
+        "size": asteroid_1_size
+    })
+
+if asteroid_image_2 is not None:
+    obstacle_assets.append({
+        "image": asteroid_image_2,
+        "size": asteroid_2_size
+    })
 
 powerup_images = {
     "shield": load_image("shield.png", (powerup_size, powerup_size)),
     "slow": load_image("slow.png", (powerup_size, powerup_size)),
     "multiplier": load_image("multiplier.png", (powerup_size, powerup_size))
 }
+
+
+def update_player_hitbox():
+    """Keep the smaller hitbox centered inside the player sprite."""
+    player_hitbox.center = player.center
 
 
 def create_stars(amount):
@@ -135,7 +160,7 @@ def create_stars(amount):
 
 
 def draw_background():
-    """Draw the background image or fallback animated stars."""
+    """Draw the background image and moving star layer."""
     if background_image is not None:
         screen.blit(background_image, (0, 0))
     else:
@@ -163,15 +188,18 @@ def draw_stars():
 
 def spawn_obstacle(difficulty):
     """Create a falling obstacle with speed based on difficulty."""
+    if obstacle_assets:
+        asset = random.choice(obstacle_assets)
+        image = asset["image"]
+        obstacle_size = asset["size"]
+    else:
+        image = None
+        obstacle_size = random.choice([asteroid_1_size, asteroid_2_size])
+
     x = random.randint(0, WIDTH - obstacle_size)
     y = -obstacle_size
     speed = random.randint(3, 6) + difficulty
     color = random.choice(OBSTACLE_COLORS)
-
-    if obstacle_images:
-        image = random.choice(obstacle_images)
-    else:
-        image = None
 
     rect = pygame.Rect(x, y, obstacle_size, obstacle_size)
 
@@ -277,37 +305,33 @@ def reset_game():
     multiplier_active = False
     multiplier_end_time = 0
 
-    player.x = WIDTH // 2
-    player.y = HEIGHT - 90
+    player.center = (WIDTH // 2, HEIGHT - 110)
+    update_player_hitbox()
 
 
 def draw_player():
-    """Draw the player with sprite, glow, and shield effect."""
-    glow_rect = player.inflate(14, 14)
-    pygame.draw.rect(screen, PLAYER_GLOW, glow_rect, border_radius=10)
-
+    """Draw the player sprite with a thin outline around the real hitbox."""
     if player_image is not None:
         screen.blit(player_image, player.topleft)
     else:
         pygame.draw.rect(screen, PLAYER_COLOR, player, border_radius=6)
 
+    # Thin hitbox outline. This shows the real collision area.
+    # outline_rect = player_hitbox.inflate(10, 10)
+    # pygame.draw.ellipse(screen, (0, 170, 255), outline_rect, 2)
+
     if shield_active:
-        shield_rect = player.inflate(38, 38)
+        shield_rect = player.inflate(30, 30)
         pygame.draw.ellipse(screen, SHIELD_COLOR, shield_rect, 3)
 
 
 def draw_obstacles():
-    """Draw all obstacles as sprites or fallback shapes."""
+    """Draw all obstacles as asteroid sprites or fallback circles."""
     for obs in obstacles:
         if obs["image"] is not None:
             screen.blit(obs["image"], obs["rect"].topleft)
         else:
-            pygame.draw.rect(
-                screen,
-                obs["color"],
-                obs["rect"],
-                border_radius=5
-            )
+            pygame.draw.ellipse(screen, obs["color"], obs["rect"])
 
 
 def draw_powerups():
@@ -403,6 +427,7 @@ def draw_game_over():
 
 
 stars = create_stars(55)
+update_player_hitbox()
 
 while True:
     draw_background()
@@ -442,6 +467,7 @@ while True:
             player.y += player_speed
 
         player.clamp_ip(screen.get_rect())
+        update_player_hitbox()
 
         # Score system
         # Slow motion does NOT affect score.
@@ -492,15 +518,15 @@ while True:
         # Remove off-screen obstacles and power-ups
         obstacles = [
             obs for obs in obstacles
-            if obs["rect"].y < HEIGHT + 50
+            if obs["rect"].y < HEIGHT + 60
         ]
 
         powerups = [
             powerup for powerup in powerups
-            if powerup["rect"].y < HEIGHT + 50
+            if powerup["rect"].y < HEIGHT + 60
         ]
 
-        # Power-up collection
+        # Power-up collection uses full player sprite area
         for powerup in powerups[:]:
             if player.colliderect(powerup["rect"]):
                 if powerup["type"] == "shield":
@@ -535,9 +561,9 @@ while True:
 
                 powerups.remove(powerup)
 
-        # Collision with obstacles
+        # Obstacle collision uses smaller player hitbox
         for obs in obstacles[:]:
-            if player.colliderect(obs["rect"]):
+            if player_hitbox.colliderect(obs["rect"]):
                 if shield_active:
                     obstacles.remove(obs)
                     create_explosion(

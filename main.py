@@ -62,7 +62,7 @@ multiplier_value = 2
 # Background stars
 stars = []
 
-# Explosion / effect particles
+# Effect particles
 particles = []
 
 # Game state
@@ -114,8 +114,11 @@ def spawn_obstacle(difficulty):
     speed = random.randint(3, 6) + difficulty
     color = random.choice(OBSTACLE_COLORS)
 
+    rect = pygame.Rect(x, y, obstacle_size, obstacle_size)
+
     return {
-        "rect": pygame.Rect(x, y, obstacle_size, obstacle_size),
+        "rect": rect,
+        "y": float(y),
         "speed": speed,
         "color": color
     }
@@ -186,7 +189,7 @@ def update_particles():
 
 def reset_game():
     """Reset all gameplay values to start a new run."""
-    global obstacles, powerups, particles, game_over, start_time
+    global obstacles, powerups, particles, game_over
     global score, score_value, spawn_timer, difficulty_level
     global powerup_spawn_timer
     global shield_active, shield_end_time
@@ -198,7 +201,6 @@ def reset_game():
     particles = []
 
     game_over = False
-    start_time = pygame.time.get_ticks()
     score = 0
     score_value = 0.0
     spawn_timer = 0
@@ -326,7 +328,7 @@ while True:
 
     current_time = pygame.time.get_ticks()
 
-    # Check if timed power-ups should end
+    # Turn off timed power-ups when they expire
     if shield_active and current_time > shield_end_time:
         shield_active = False
 
@@ -360,7 +362,8 @@ while True:
 
         player.clamp_ip(screen.get_rect())
 
-        # Score and difficulty
+        # Score system
+        # Slow motion does NOT affect this. Score is based on real frame time.
         delta_time = clock.get_time() / 1000
 
         if multiplier_active:
@@ -371,6 +374,7 @@ while True:
         score_value += 10 * score_multiplier * delta_time
         score = int(score_value)
 
+        # Difficulty scaling
         difficulty_level = 1 + score // 100
         current_spawn_delay = max(
             min_spawn_delay,
@@ -389,17 +393,18 @@ while True:
             powerups.append(spawn_powerup())
             powerup_spawn_timer = 0
 
-        # Slow motion multiplier
+        # Slow motion only affects obstacle movement
         if slow_active:
             speed_multiplier = 0.45
         else:
             speed_multiplier = 1.0
 
-        # Move obstacles
+        # Move obstacles smoothly using float y value
         for obs in obstacles:
-            obs["rect"].y += int(obs["speed"] * speed_multiplier)
+            obs["y"] += obs["speed"] * speed_multiplier
+            obs["rect"].y = int(obs["y"])
 
-        # Move power-ups
+        # Move power-ups normally
         for powerup in powerups:
             powerup["rect"].y += powerup["speed"]
 
@@ -466,7 +471,7 @@ while True:
                     create_explosion(player.centerx, player.centery)
                     break
 
-    # Draw objects
+    # Draw obstacles
     for obs in obstacles:
         pygame.draw.rect(screen, obs["color"], obs["rect"], border_radius=5)
 

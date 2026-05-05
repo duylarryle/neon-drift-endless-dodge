@@ -1,3 +1,4 @@
+import os
 import pygame
 import random
 import sys
@@ -11,6 +12,9 @@ pygame.display.set_caption("Neon Drift: Endless Dodge")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 36)
 small_font = pygame.font.SysFont(None, 26)
+
+BASE_DIR = os.path.dirname(__file__)
+ASSET_DIR = os.path.join(BASE_DIR, "assets")
 
 # Colors
 BACKGROUND = (8, 8, 18)
@@ -29,20 +33,20 @@ OBSTACLE_COLORS = [
 ]
 
 # Player
-player_size = 40
-player = pygame.Rect(WIDTH // 2, HEIGHT - 80, player_size, player_size)
+player_size = 48
+player = pygame.Rect(WIDTH // 2, HEIGHT - 90, player_size, player_size)
 player_speed = 6
 
 # Obstacles
 obstacles = []
-obstacle_size = 30
+obstacle_size = 42
 spawn_timer = 0
 base_spawn_delay = 30
 min_spawn_delay = 8
 
 # Power-ups
 powerups = []
-powerup_size = 28
+powerup_size = 34
 powerup_spawn_timer = 0
 powerup_spawn_delay = 360
 
@@ -71,7 +75,47 @@ score = 0
 score_value = 0.0
 high_score = 0
 difficulty_level = 1
-start_time = pygame.time.get_ticks()
+
+
+def load_image(filename, size):
+    """Load and resize an image from the assets folder.
+
+    :param filename: Name of the image file.
+    :type filename: str
+    :param size: Target image size.
+    :type size: tuple
+    :return: Loaded image or None if file is missing.
+    :rtype: pygame.Surface or None
+    """
+    path = os.path.join(ASSET_DIR, filename)
+
+    try:
+        image = pygame.image.load(path).convert_alpha()
+        image = pygame.transform.scale(image, size)
+        return image
+    except FileNotFoundError:
+        print(f"Warning: Missing asset file: {filename}")
+        return None
+    except pygame.error:
+        print(f"Warning: Could not load asset file: {filename}")
+        return None
+
+
+# Load assets
+background_image = load_image("background.png", (WIDTH, HEIGHT))
+player_image = load_image("player.png", (player_size, player_size))
+
+obstacle_images = [
+    load_image("asteroid.png", (obstacle_size, obstacle_size)),
+    load_image("asteroid_2.png", (obstacle_size, obstacle_size))
+]
+obstacle_images = [img for img in obstacle_images if img is not None]
+
+powerup_images = {
+    "shield": load_image("shield.png", (powerup_size, powerup_size)),
+    "slow": load_image("slow.png", (powerup_size, powerup_size)),
+    "multiplier": load_image("multiplier.png", (powerup_size, powerup_size))
+}
 
 
 def create_stars(amount):
@@ -90,6 +134,16 @@ def create_stars(amount):
     return new_stars
 
 
+def draw_background():
+    """Draw the background image or fallback animated stars."""
+    if background_image is not None:
+        screen.blit(background_image, (0, 0))
+    else:
+        screen.fill(BACKGROUND)
+
+    draw_stars()
+
+
 def draw_stars():
     """Move and draw background stars."""
     for star in stars:
@@ -101,7 +155,7 @@ def draw_stars():
 
         pygame.draw.circle(
             screen,
-            (80, 100, 160),
+            (90, 130, 200),
             (int(star["x"]), int(star["y"])),
             star["size"]
         )
@@ -114,13 +168,19 @@ def spawn_obstacle(difficulty):
     speed = random.randint(3, 6) + difficulty
     color = random.choice(OBSTACLE_COLORS)
 
+    if obstacle_images:
+        image = random.choice(obstacle_images)
+    else:
+        image = None
+
     rect = pygame.Rect(x, y, obstacle_size, obstacle_size)
 
     return {
         "rect": rect,
         "y": float(y),
         "speed": speed,
-        "color": color
+        "color": color,
+        "image": image
     }
 
 
@@ -141,7 +201,8 @@ def spawn_powerup():
         "rect": pygame.Rect(x, y, powerup_size, powerup_size),
         "speed": 3,
         "type": powerup_type,
-        "color": color
+        "color": color,
+        "image": powerup_images[powerup_type]
     }
 
 
@@ -217,53 +278,74 @@ def reset_game():
     multiplier_end_time = 0
 
     player.x = WIDTH // 2
-    player.y = HEIGHT - 80
+    player.y = HEIGHT - 90
 
 
 def draw_player():
-    """Draw the player with neon glow and shield effect."""
-    glow_rect = player.inflate(12, 12)
-    pygame.draw.rect(screen, PLAYER_GLOW, glow_rect, border_radius=8)
-    pygame.draw.rect(screen, PLAYER_COLOR, player, border_radius=6)
+    """Draw the player with sprite, glow, and shield effect."""
+    glow_rect = player.inflate(14, 14)
+    pygame.draw.rect(screen, PLAYER_GLOW, glow_rect, border_radius=10)
+
+    if player_image is not None:
+        screen.blit(player_image, player.topleft)
+    else:
+        pygame.draw.rect(screen, PLAYER_COLOR, player, border_radius=6)
 
     if shield_active:
-        shield_rect = player.inflate(28, 28)
+        shield_rect = player.inflate(38, 38)
         pygame.draw.ellipse(screen, SHIELD_COLOR, shield_rect, 3)
 
 
-def draw_powerups():
-    """Draw all active power-ups."""
-    for powerup in powerups:
-        pygame.draw.ellipse(screen, powerup["color"], powerup["rect"])
-
-        if powerup["type"] == "shield":
-            label = "S"
-        elif powerup["type"] == "slow":
-            label = "T"
+def draw_obstacles():
+    """Draw all obstacles as sprites or fallback shapes."""
+    for obs in obstacles:
+        if obs["image"] is not None:
+            screen.blit(obs["image"], obs["rect"].topleft)
         else:
-            label = "X"
+            pygame.draw.rect(
+                screen,
+                obs["color"],
+                obs["rect"],
+                border_radius=5
+            )
 
-        label_text = small_font.render(label, True, (255, 255, 255))
-        label_rect = label_text.get_rect(center=powerup["rect"].center)
-        screen.blit(label_text, label_rect)
+
+def draw_powerups():
+    """Draw all active power-ups as sprites or fallback symbols."""
+    for powerup in powerups:
+        if powerup["image"] is not None:
+            screen.blit(powerup["image"], powerup["rect"].topleft)
+        else:
+            pygame.draw.ellipse(screen, powerup["color"], powerup["rect"])
+
+            if powerup["type"] == "shield":
+                label = "S"
+            elif powerup["type"] == "slow":
+                label = "T"
+            else:
+                label = "X"
+
+            label_text = small_font.render(label, True, (255, 255, 255))
+            label_rect = label_text.get_rect(center=powerup["rect"].center)
+            screen.blit(label_text, label_rect)
 
 
 def draw_ui():
     """Draw score, difficulty, high score, and power-up status."""
-    score_text = font.render(f"Score: {score}", True, (220, 220, 255))
+    score_text = font.render(f"Score: {score}", True, (255, 255, 255))
     screen.blit(score_text, (10, 10))
 
     difficulty_text = small_font.render(
         f"Difficulty: {difficulty_level}",
         True,
-        (180, 180, 230)
+        (220, 220, 255)
     )
     screen.blit(difficulty_text, (10, 45))
 
     high_score_text = small_font.render(
         f"High Score: {high_score}",
         True,
-        (180, 180, 230)
+        (220, 220, 255)
     )
     screen.blit(high_score_text, (10, 70))
 
@@ -299,7 +381,7 @@ def draw_ui():
 def draw_game_over():
     """Draw the game over screen."""
     overlay = pygame.Surface((WIDTH, HEIGHT))
-    overlay.set_alpha(120)
+    overlay.set_alpha(145)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
 
@@ -315,16 +397,15 @@ def draw_game_over():
         (220, 220, 255)
     )
 
-    screen.blit(game_over_text, (WIDTH // 2 - 85, HEIGHT // 2 - 50))
-    screen.blit(final_score_text, (WIDTH // 2 - 70, HEIGHT // 2 - 10))
-    screen.blit(restart_text, (WIDTH // 2 - 75, HEIGHT // 2 + 25))
+    screen.blit(game_over_text, (WIDTH // 2 - 85, HEIGHT // 2 - 55))
+    screen.blit(final_score_text, (WIDTH // 2 - 70, HEIGHT // 2 - 15))
+    screen.blit(restart_text, (WIDTH // 2 - 75, HEIGHT // 2 + 20))
 
 
-stars = create_stars(80)
+stars = create_stars(55)
 
 while True:
-    screen.fill(BACKGROUND)
-    draw_stars()
+    draw_background()
 
     current_time = pygame.time.get_ticks()
 
@@ -363,7 +444,7 @@ while True:
         player.clamp_ip(screen.get_rect())
 
         # Score system
-        # Slow motion does NOT affect this. Score is based on real frame time.
+        # Slow motion does NOT affect score.
         delta_time = clock.get_time() / 1000
 
         if multiplier_active:
@@ -471,10 +552,7 @@ while True:
                     create_explosion(player.centerx, player.centery)
                     break
 
-    # Draw obstacles
-    for obs in obstacles:
-        pygame.draw.rect(screen, obs["color"], obs["rect"], border_radius=5)
-
+    draw_obstacles()
     draw_powerups()
     draw_player()
     update_particles()

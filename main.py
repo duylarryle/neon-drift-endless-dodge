@@ -16,6 +16,11 @@ small_font = pygame.font.SysFont(None, 26)
 BACKGROUND = (8, 8, 18)
 PLAYER_COLOR = (0, 255, 200)
 PLAYER_GLOW = (0, 120, 255)
+
+SHIELD_COLOR = (0, 180, 255)
+SLOW_COLOR = (180, 80, 255)
+MULTIPLIER_COLOR = (255, 220, 60)
+
 OBSTACLE_COLORS = [
     (255, 80, 80),
     (255, 120, 40),
@@ -35,15 +40,35 @@ spawn_timer = 0
 base_spawn_delay = 30
 min_spawn_delay = 8
 
+# Power-ups
+powerups = []
+powerup_size = 28
+powerup_spawn_timer = 0
+powerup_spawn_delay = 360
+
+shield_active = False
+shield_end_time = 0
+shield_duration = 5000
+
+slow_active = False
+slow_end_time = 0
+slow_duration = 4000
+
+multiplier_active = False
+multiplier_end_time = 0
+multiplier_duration = 6000
+multiplier_value = 2
+
 # Background stars
 stars = []
 
-# Explosion particles
+# Explosion / effect particles
 particles = []
 
 # Game state
 game_over = False
 score = 0
+score_value = 0.0
 high_score = 0
 difficulty_level = 1
 start_time = pygame.time.get_ticks()
@@ -96,29 +121,57 @@ def spawn_obstacle(difficulty):
     }
 
 
-def create_explosion(x, y):
-    """Create particles when the player loses."""
-    for _ in range(35):
+def spawn_powerup():
+    """Create a falling power-up."""
+    x = random.randint(0, WIDTH - powerup_size)
+    y = -powerup_size
+    powerup_type = random.choice(["shield", "slow", "multiplier"])
+
+    if powerup_type == "shield":
+        color = SHIELD_COLOR
+    elif powerup_type == "slow":
+        color = SLOW_COLOR
+    else:
+        color = MULTIPLIER_COLOR
+
+    return {
+        "rect": pygame.Rect(x, y, powerup_size, powerup_size),
+        "speed": 3,
+        "type": powerup_type,
+        "color": color
+    }
+
+
+def create_explosion(x, y, color=(180, 200, 255), amount=35):
+    """Create particles for explosions and power-up effects."""
+    for _ in range(amount):
         particle = {
             "x": x,
             "y": y,
             "vx": random.uniform(-5, 5),
             "vy": random.uniform(-5, 5),
             "life": random.randint(20, 40),
-            "max_life": 40
+            "max_life": 40,
+            "color": color
         }
         particles.append(particle)
 
 
 def update_particles():
-    """Update and draw explosion particles."""
+    """Update and draw effect particles."""
     for particle in particles[:]:
         particle["x"] += particle["vx"]
         particle["y"] += particle["vy"]
         particle["life"] -= 1
 
-        fade = max(0, int(255 * (particle["life"] / particle["max_life"])))
-        color = (fade, fade, 255)
+        fade_ratio = max(0, particle["life"] / particle["max_life"])
+        base_color = particle["color"]
+
+        color = (
+            int(base_color[0] * fade_ratio),
+            int(base_color[1] * fade_ratio),
+            int(base_color[2] * fade_ratio)
+        )
 
         pygame.draw.circle(
             screen,
@@ -133,30 +186,68 @@ def update_particles():
 
 def reset_game():
     """Reset all gameplay values to start a new run."""
-    global obstacles, particles, game_over, start_time
-    global score, spawn_timer, difficulty_level
+    global obstacles, powerups, particles, game_over, start_time
+    global score, score_value, spawn_timer, difficulty_level
+    global powerup_spawn_timer
+    global shield_active, shield_end_time
+    global slow_active, slow_end_time
+    global multiplier_active, multiplier_end_time
 
     obstacles = []
+    powerups = []
     particles = []
+
     game_over = False
     start_time = pygame.time.get_ticks()
     score = 0
+    score_value = 0.0
     spawn_timer = 0
+    powerup_spawn_timer = 0
     difficulty_level = 1
+
+    shield_active = False
+    shield_end_time = 0
+
+    slow_active = False
+    slow_end_time = 0
+
+    multiplier_active = False
+    multiplier_end_time = 0
 
     player.x = WIDTH // 2
     player.y = HEIGHT - 80
 
 
 def draw_player():
-    """Draw the player with a simple neon glow outline."""
+    """Draw the player with neon glow and shield effect."""
     glow_rect = player.inflate(12, 12)
     pygame.draw.rect(screen, PLAYER_GLOW, glow_rect, border_radius=8)
     pygame.draw.rect(screen, PLAYER_COLOR, player, border_radius=6)
 
+    if shield_active:
+        shield_rect = player.inflate(28, 28)
+        pygame.draw.ellipse(screen, SHIELD_COLOR, shield_rect, 3)
+
+
+def draw_powerups():
+    """Draw all active power-ups."""
+    for powerup in powerups:
+        pygame.draw.ellipse(screen, powerup["color"], powerup["rect"])
+
+        if powerup["type"] == "shield":
+            label = "S"
+        elif powerup["type"] == "slow":
+            label = "T"
+        else:
+            label = "X"
+
+        label_text = small_font.render(label, True, (255, 255, 255))
+        label_rect = label_text.get_rect(center=powerup["rect"].center)
+        screen.blit(label_text, label_rect)
+
 
 def draw_ui():
-    """Draw score, difficulty, and high score."""
+    """Draw score, difficulty, high score, and power-up status."""
     score_text = font.render(f"Score: {score}", True, (220, 220, 255))
     screen.blit(score_text, (10, 10))
 
@@ -173,6 +264,34 @@ def draw_ui():
         (180, 180, 230)
     )
     screen.blit(high_score_text, (10, 70))
+
+    y_position = 95
+
+    if shield_active:
+        shield_text = small_font.render(
+            "Shield Active",
+            True,
+            SHIELD_COLOR
+        )
+        screen.blit(shield_text, (10, y_position))
+        y_position += 25
+
+    if slow_active:
+        slow_text = small_font.render(
+            "Slow Motion Active",
+            True,
+            SLOW_COLOR
+        )
+        screen.blit(slow_text, (10, y_position))
+        y_position += 25
+
+    if multiplier_active:
+        multiplier_text = small_font.render(
+            "2x Score Active",
+            True,
+            MULTIPLIER_COLOR
+        )
+        screen.blit(multiplier_text, (10, y_position))
 
 
 def draw_game_over():
@@ -205,6 +324,18 @@ while True:
     screen.fill(BACKGROUND)
     draw_stars()
 
+    current_time = pygame.time.get_ticks()
+
+    # Check if timed power-ups should end
+    if shield_active and current_time > shield_end_time:
+        shield_active = False
+
+    if slow_active and current_time > slow_end_time:
+        slow_active = False
+
+    if multiplier_active and current_time > multiplier_end_time:
+        multiplier_active = False
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             pygame.quit()
@@ -230,7 +361,16 @@ while True:
         player.clamp_ip(screen.get_rect())
 
         # Score and difficulty
-        score = (pygame.time.get_ticks() - start_time) // 100
+        delta_time = clock.get_time() / 1000
+
+        if multiplier_active:
+            score_multiplier = multiplier_value
+        else:
+            score_multiplier = 1
+
+        score_value += 10 * score_multiplier * delta_time
+        score = int(score_value)
+
         difficulty_level = 1 + score // 100
         current_spawn_delay = max(
             min_spawn_delay,
@@ -243,27 +383,94 @@ while True:
             obstacles.append(spawn_obstacle(difficulty_level))
             spawn_timer = 0
 
+        # Spawn power-ups
+        powerup_spawn_timer += 1
+        if powerup_spawn_timer >= powerup_spawn_delay:
+            powerups.append(spawn_powerup())
+            powerup_spawn_timer = 0
+
+        # Slow motion multiplier
+        if slow_active:
+            speed_multiplier = 0.45
+        else:
+            speed_multiplier = 1.0
+
         # Move obstacles
         for obs in obstacles:
-            obs["rect"].y += obs["speed"]
+            obs["rect"].y += int(obs["speed"] * speed_multiplier)
 
-        # Remove off-screen obstacles
+        # Move power-ups
+        for powerup in powerups:
+            powerup["rect"].y += powerup["speed"]
+
+        # Remove off-screen obstacles and power-ups
         obstacles = [
             obs for obs in obstacles
             if obs["rect"].y < HEIGHT + 50
         ]
 
-        # Collision
-        for obs in obstacles:
-            if player.colliderect(obs["rect"]):
-                game_over = True
-                high_score = max(high_score, score)
-                create_explosion(player.centerx, player.centery)
+        powerups = [
+            powerup for powerup in powerups
+            if powerup["rect"].y < HEIGHT + 50
+        ]
 
-    # Draw obstacles
+        # Power-up collection
+        for powerup in powerups[:]:
+            if player.colliderect(powerup["rect"]):
+                if powerup["type"] == "shield":
+                    shield_active = True
+                    shield_end_time = current_time + shield_duration
+                    create_explosion(
+                        player.centerx,
+                        player.centery,
+                        SHIELD_COLOR,
+                        25
+                    )
+
+                elif powerup["type"] == "slow":
+                    slow_active = True
+                    slow_end_time = current_time + slow_duration
+                    create_explosion(
+                        player.centerx,
+                        player.centery,
+                        SLOW_COLOR,
+                        25
+                    )
+
+                elif powerup["type"] == "multiplier":
+                    multiplier_active = True
+                    multiplier_end_time = current_time + multiplier_duration
+                    create_explosion(
+                        player.centerx,
+                        player.centery,
+                        MULTIPLIER_COLOR,
+                        25
+                    )
+
+                powerups.remove(powerup)
+
+        # Collision with obstacles
+        for obs in obstacles[:]:
+            if player.colliderect(obs["rect"]):
+                if shield_active:
+                    obstacles.remove(obs)
+                    create_explosion(
+                        obs["rect"].centerx,
+                        obs["rect"].centery,
+                        SHIELD_COLOR,
+                        20
+                    )
+                else:
+                    game_over = True
+                    high_score = max(high_score, score)
+                    create_explosion(player.centerx, player.centery)
+                    break
+
+    # Draw objects
     for obs in obstacles:
         pygame.draw.rect(screen, obs["color"], obs["rect"], border_radius=5)
 
+    draw_powerups()
     draw_player()
     update_particles()
     draw_ui()

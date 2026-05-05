@@ -2,7 +2,6 @@ import pygame
 import random
 import sys
 
-# Initialize
 pygame.init()
 
 WIDTH, HEIGHT = 800, 600
@@ -21,29 +20,41 @@ player_speed = 6
 obstacles = []
 obstacle_size = 30
 spawn_timer = 0
-spawn_delay = 30
+base_spawn_delay = 30
+min_spawn_delay = 8
 
 # Game state
 game_over = False
 score = 0
+difficulty_level = 1
 start_time = pygame.time.get_ticks()
 
-def spawn_obstacle():
+
+def spawn_obstacle(difficulty):
     x = random.randint(0, WIDTH - obstacle_size)
     y = -obstacle_size
-    speed = random.randint(3, 6)
-    return {"rect": pygame.Rect(x, y, obstacle_size, obstacle_size), "speed": speed}
+    speed = random.randint(3, 6) + difficulty
+
+    return {
+        "rect": pygame.Rect(x, y, obstacle_size, obstacle_size),
+        "speed": speed
+    }
+
 
 def reset_game():
-    global obstacles, game_over, start_time, score
+    global obstacles, game_over, start_time, score, spawn_timer, difficulty_level
+
     obstacles = []
     game_over = False
     start_time = pygame.time.get_ticks()
     score = 0
+    spawn_timer = 0
+    difficulty_level = 1
+
     player.x = WIDTH // 2
     player.y = HEIGHT - 80
 
-# Game loop
+
 while True:
     screen.fill((10, 10, 20))
 
@@ -69,13 +80,20 @@ while True:
         if keys[pygame.K_DOWN] or keys[pygame.K_s]:
             player.y += player_speed
 
-        # Keep player on screen
         player.clamp_ip(screen.get_rect())
+
+        # Score and difficulty
+        score = (pygame.time.get_ticks() - start_time) // 100
+        difficulty_level = 1 + score // 100
+        current_spawn_delay = max(
+            min_spawn_delay,
+            base_spawn_delay - difficulty_level
+        )
 
         # Spawn obstacles
         spawn_timer += 1
-        if spawn_timer >= spawn_delay:
-            obstacles.append(spawn_obstacle())
+        if spawn_timer >= current_spawn_delay:
+            obstacles.append(spawn_obstacle(difficulty_level))
             spawn_timer = 0
 
         # Move obstacles
@@ -83,15 +101,15 @@ while True:
             obs["rect"].y += obs["speed"]
 
         # Remove off-screen obstacles
-        obstacles = [obs for obs in obstacles if obs["rect"].y < HEIGHT + 50]
+        obstacles = [
+            obs for obs in obstacles
+            if obs["rect"].y < HEIGHT + 50
+        ]
 
         # Collision
         for obs in obstacles:
             if player.colliderect(obs["rect"]):
                 game_over = True
-
-        # Score (based on survival time)
-        score = (pygame.time.get_ticks() - start_time) // 100
 
     # Draw player
     pygame.draw.rect(screen, (0, 255, 200), player)
@@ -100,13 +118,23 @@ while True:
     for obs in obstacles:
         pygame.draw.rect(screen, (255, 80, 80), obs["rect"])
 
-    # Draw score
+    # Draw UI
     score_text = font.render(f"Score: {score}", True, (200, 200, 255))
     screen.blit(score_text, (10, 10))
 
-    # Game over text
+    difficulty_text = font.render(
+        f"Difficulty: {difficulty_level}",
+        True,
+        (200, 200, 255)
+    )
+    screen.blit(difficulty_text, (10, 45))
+
     if game_over:
-        over_text = font.render("GAME OVER - Press R to Restart", True, (255, 255, 255))
+        over_text = font.render(
+            "GAME OVER - Press R to Restart",
+            True,
+            (255, 255, 255)
+        )
         screen.blit(over_text, (WIDTH // 2 - 180, HEIGHT // 2))
 
     pygame.display.flip()
